@@ -29,21 +29,53 @@ const SUSPENSE_CONFIG = {
   busyMinDurationMs: 700,
 }
 
-// 🐨 create a pokemonResourceCache object
+const pokemonResourceCacheContext = React.createContext()
 
-// 🐨 create a getPokemonResource function which accepts a name checks the cache
-// for an existing resource. If there is none, then it creates a resource
-// and inserts it into the cache. Finally the function should return the
-// resource.
+function PokemonResourceCacheProvider({children, cacheTime}) {
+  const cache = React.useRef({})
+  const expirations = React.useRef({})
 
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      for(const [name, time] of Object.entries(expirations.current)) {
+        if(time < Date.now()){
+          delete cache.current[name]
+          delete expirations.current[name]
+        }
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  const getPokemonResource = React.useCallback(name => {
+    name = name.toLowerCase()
+    let resource = cache.current[name]
+    if (!resource) {
+      resource = createPokemonResource(name)
+      cache.current[name] = resource
+    }
+    expirations.current[name] = Date.now() + cacheTime
+    return resource
+  }, [cacheTime])
+  return (
+    <pokemonResourceCacheContext.Provider value={getPokemonResource}>
+      {children}
+    </pokemonResourceCacheContext.Provider>
+  )
+}
 function createPokemonResource(pokemonName) {
   return createResource(fetchPokemon(pokemonName))
 }
 
+function usePokemonResourceCache() {
+  return React.useContext(pokemonResourceCacheContext)
+}
 function App() {
   const [pokemonName, setPokemonName] = React.useState('')
   const [startTransition, isPending] = React.useTransition(SUSPENSE_CONFIG)
   const [pokemonResource, setPokemonResource] = React.useState(null)
+  const getPokemonResource = usePokemonResourceCache()
 
   React.useEffect(() => {
     if (!pokemonName) {
@@ -51,10 +83,9 @@ function App() {
       return
     }
     startTransition(() => {
-      // 🐨 change this to getPokemonResource instead
-      setPokemonResource(createPokemonResource(pokemonName))
+      setPokemonResource(getPokemonResource(pokemonName))
     })
-  }, [pokemonName, startTransition])
+  }, [getPokemonResource, pokemonName, startTransition])
 
   function handleSubmit(newPokemonName) {
     setPokemonName(newPokemonName)
@@ -88,4 +119,11 @@ function App() {
   )
 }
 
-export default App
+function AppWithProvider() {
+  return (
+    <PokemonResourceCacheProvider cacheTime={5000}>
+      <App />
+    </PokemonResourceCacheProvider>
+  )
+}
+export default AppWithProvider
